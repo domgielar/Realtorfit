@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { flushSync } from 'react-dom'
 import Welcome from '@/components/Welcome'
 import ProfileWizard from '@/components/ProfileWizard'
+import RealtorWizard from '@/components/RealtorWizard'
 import Matches from '@/components/Matches'
 import RealtorDetail from '@/components/RealtorDetail'
 import type { BuyerProfile, MatchResult } from '@/lib/matching'
 
-type View = 'welcome' | 'wizard' | 'matches'
+type View = 'welcome' | 'wizard' | 'matches' | 'realtor-wizard'
 
 const HOUSE_IMAGES = [
   '/sieuwert-otterloo-aren8nutd1Q-unsplash.jpg',
@@ -25,10 +27,22 @@ export default function Home() {
     Math.floor(Math.random() * HOUSE_IMAGES.length)
   )
 
+  const startVT = (cb: () => void) => {
+    if ('startViewTransition' in document) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(document as any).startViewTransition(() => flushSync(cb))
+    } else {
+      cb()
+    }
+  }
+
+  const handleView = (match: MatchResult) => startVT(() => setSelected(match))
+  const handleClose = () => startVT(() => setSelected(null))
+
   useEffect(() => {
     const timer = setInterval(() => {
       setBgIndex((prev) => (prev + 1) % HOUSE_IMAGES.length)
-    }, 20000)
+    }, 10000)
     return () => clearInterval(timer)
   }, [])
 
@@ -56,7 +70,19 @@ export default function Home() {
       />
 
       <main className="relative min-h-screen text-[--color-ink]">
-        {view === 'welcome' && <Welcome onStart={() => setView('wizard')} />}
+        {view === 'welcome' && (
+          <Welcome
+            onStart={() => setView('wizard')}
+            onRealtorStart={() => setView('realtor-wizard')}
+          />
+        )}
+
+        {view === 'realtor-wizard' && (
+          <RealtorWizard
+            onComplete={() => setView('welcome')}
+            onBack={() => setView('welcome')}
+          />
+        )}
 
         {view === 'wizard' && (
           <ProfileWizard
@@ -69,10 +95,15 @@ export default function Home() {
         )}
 
         {view === 'matches' && buyer && (
-          <Matches buyer={buyer} onView={setSelected} onEdit={() => setView('wizard')} />
+          <Matches
+            buyer={buyer}
+            onView={handleView}
+            onEdit={() => setView('wizard')}
+            selectedId={selected?.realtor.id ?? null}
+          />
         )}
 
-        <RealtorDetail match={selected} onClose={() => setSelected(null)} />
+        <RealtorDetail match={selected} onClose={handleClose} />
       </main>
     </div>
   )

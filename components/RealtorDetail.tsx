@@ -47,6 +47,7 @@ export default function RealtorDetail({ match, onClose }: RealtorDetailProps) {
               <div className="flex gap-4 items-start mt-2 mb-5.5">
                 <span
                   className="text-[42px] w-18 h-18 shrink-0 grid place-items-center rounded-full bg-[--color-paper-deep]"
+                  style={{ viewTransitionName: `realtor-photo-${match.realtor.id}` }}
                   aria-hidden="true"
                 >
                   {match.realtor.photo}
@@ -93,7 +94,7 @@ export default function RealtorDetail({ match, onClose }: RealtorDetailProps) {
                   { label: 'Experience', value: `${match.realtor.yearsExperience} years` },
                   { label: 'Homes sold', value: String(match.realtor.homesSold) },
                   { label: 'Commission', value: `${match.realtor.commissionRate}%` },
-                  { label: 'Rating', value: `★ ${match.realtor.rating} (${match.realtor.reviewCount})` },
+                  { label: 'Rating', value: match.realtor.reviewCount > 0 ? `★ ${match.realtor.rating} (${match.realtor.reviewCount})` : 'New — no reviews yet' },
                   { label: 'Avg response', value: `${match.realtor.avgResponseHours} hours` },
                   {
                     label: 'Works in',

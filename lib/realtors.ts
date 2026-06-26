@@ -30,6 +30,22 @@ export interface Realtor {
   recentDeal: string
 }
 
+const STORAGE_KEY = 'realtorfit_realtors'
+
+export function getRegisteredRealtors(): Realtor[] {
+  if (typeof window === 'undefined') return []
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as Realtor[]
+  } catch {
+    return []
+  }
+}
+
+export function registerRealtor(realtor: Realtor): void {
+  const current = getRegisteredRealtors()
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...current, realtor]))
+}
+
 export const REALTORS: Realtor[] = [
   {
     id: 'r-maria',

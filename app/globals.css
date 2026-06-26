@@ -162,3 +162,11 @@
 @keyframes slide {
   from { transform: translateX(40px); opacity: 0.4; }
 }
+
+/* Suppress the default root crossfade so the page doesn't flash during the
+   emoji shared-element transition — the dialog's own slide animation handles
+   the panel entrance. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}

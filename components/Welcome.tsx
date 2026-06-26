@@ -5,6 +5,7 @@ const GRADIENT_HOVER = 'linear-gradient(to right, #f09060, #7a2e18)'
 
 interface WelcomeProps {
   onStart: () => void
+  onRealtorStart: () => void
 }
 
 function HeroButton({
@@ -47,7 +48,7 @@ function HeroButton({
   )
 }
 
-export default function Welcome({ onStart }: WelcomeProps) {
+export default function Welcome({ onStart, onRealtorStart }: WelcomeProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start px-6 pt-16 pb-20 text-center">
       <header className="flex items-baseline gap-3 mb-10">
@@ -77,6 +78,7 @@ export default function Welcome({ onStart }: WelcomeProps) {
         <HeroButton
           title="Sell to every client"
           subtitle="List your profile as a realtor"
+          onClick={onRealtorStart}
         />
       </div>
     </div>

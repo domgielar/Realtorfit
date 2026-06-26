@@ -3,26 +3,28 @@
 import { useMemo, useState } from 'react'
 import { rankRealtors } from '@/lib/matching'
 import type { BuyerProfile, MatchResult } from '@/lib/matching'
-import { REALTORS } from '@/lib/realtors'
+import { REALTORS, getRegisteredRealtors } from '@/lib/realtors'
 import RealtorCard from './RealtorCard'
 import { Button } from '@/components/ui/button'
-
-const ALL_LANGS = [...new Set(REALTORS.flatMap((r) => r.languages))].sort()
 
 interface MatchesProps {
   buyer: BuyerProfile
   onView: (match: MatchResult) => void
   onEdit: () => void
+  selectedId?: string | null
 }
 
-export default function Matches({ buyer, onView, onEdit }: MatchesProps) {
+export default function Matches({ buyer, onView, onEdit, selectedId }: MatchesProps) {
   const [maxCommission, setMaxCommission] = useState(3)
   const [minExperience, setMinExperience] = useState(0)
   const [availableOnly, setAvailableOnly] = useState(false)
   const [firstTimeOnly, setFirstTimeOnly] = useState(false)
   const [language, setLanguage] = useState('any')
 
-  const ranked = useMemo(() => rankRealtors(buyer, REALTORS), [buyer])
+  const [allRealtors] = useState(() => [...REALTORS, ...getRegisteredRealtors()])
+  const ALL_LANGS = useMemo(() => [...new Set(allRealtors.flatMap((r) => r.languages))].sort(), [allRealtors])
+
+  const ranked = useMemo(() => rankRealtors(buyer, allRealtors), [buyer, allRealtors])
 
   const filtered = ranked.filter(({ realtor }) => {
     if (realtor.commissionRate > maxCommission) return false
@@ -143,7 +145,12 @@ export default function Matches({ buyer, onView, onEdit }: MatchesProps) {
             </div>
           ) : (
             filtered.map((match) => (
-              <RealtorCard key={match.realtor.id} match={match} onView={onView} />
+              <RealtorCard
+                key={match.realtor.id}
+                match={match}
+                onView={onView}
+                selectedId={selectedId}
+              />
             ))
           )}
         </section>

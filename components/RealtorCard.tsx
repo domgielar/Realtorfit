@@ -7,11 +7,15 @@ import { Separator } from '@/components/ui/separator'
 interface RealtorCardProps {
   match: MatchResult
   onView: (match: MatchResult) => void
+  selectedId?: string | null
 }
 
-export default function RealtorCard({ match, onView }: RealtorCardProps) {
+export default function RealtorCard({ match, onView, selectedId }: RealtorCardProps) {
   const { realtor, score, reasons } = match
   const topReasons = reasons.filter((r) => r.type === 'plus').slice(0, 3)
+  // Clear the name once this realtor is selected so the dialog's copy is the
+  // only element with this name in the DOM — duplicate names break the morph.
+  const photoVTName = selectedId === realtor.id ? undefined : `realtor-photo-${realtor.id}`
 
   return (
     <Card className="bg-white rounded-2xl border border-[--color-line] p-5.5 flex flex-col transition-[transform,box-shadow] duration-160 ease-linear hover:-translate-y-0.75 shadow-card hover:shadow-card-hover ring-0 gap-0 py-0 overflow-visible">
@@ -19,6 +23,7 @@ export default function RealtorCard({ match, onView }: RealtorCardProps) {
         <div className="flex gap-3">
           <span
             className="text-[30px] w-13 h-13 shrink-0 grid place-items-center rounded-full bg-[--color-paper-deep]"
+            style={{ viewTransitionName: photoVTName }}
             aria-hidden="true"
           >
             {realtor.photo}
@@ -37,7 +42,7 @@ export default function RealtorCard({ match, onView }: RealtorCardProps) {
             </h3>
             <p className="text-[13px] text-[--color-muted-brand] m-0">
               {realtor.yearsExperience} yrs · {realtor.homesSold} sold ·{' '}
-              ★ {realtor.rating} ({realtor.reviewCount})
+              {realtor.reviewCount > 0 ? `★ ${realtor.rating} (${realtor.reviewCount})` : 'New listing'}
             </p>
           </div>
         </div>
