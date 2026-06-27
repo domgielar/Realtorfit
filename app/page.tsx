@@ -23,9 +23,7 @@ export default function Home() {
   const [view, setView] = useState<View>('welcome')
   const [buyer, setBuyer] = useState<BuyerProfile | null>(null)
   const [selected, setSelected] = useState<MatchResult | null>(null)
-  const [bgIndex, setBgIndex] = useState(() =>
-    Math.floor(Math.random() * HOUSE_IMAGES.length)
-  )
+  const [bgIndex, setBgIndex] = useState(0)
 
   const startVT = (cb: () => void) => {
     if ('startViewTransition' in document) {
@@ -40,6 +38,7 @@ export default function Home() {
   const handleClose = () => startVT(() => setSelected(null))
 
   useEffect(() => {
+    setBgIndex(Math.floor(Math.random() * HOUSE_IMAGES.length))
     const timer = setInterval(() => {
       setBgIndex((prev) => (prev + 1) % HOUSE_IMAGES.length)
     }, 10000)
