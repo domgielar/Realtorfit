@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { rankRealtors } from '@/lib/matching'
 import type { BuyerProfile, MatchResult } from '@/lib/matching'
-import { REALTORS, getRegisteredRealtors } from '@/lib/realtors'
+import { REALTORS } from '@/lib/realtors'
+import type { Realtor } from '@/lib/realtors'
+import { getRealtors } from '@/lib/supabase/queries'
 import RealtorCard from './RealtorCard'
 import { Button } from '@/components/ui/button'
 
@@ -21,7 +23,15 @@ export default function Matches({ buyer, onView, onEdit, selectedId }: MatchesPr
   const [firstTimeOnly, setFirstTimeOnly] = useState(false)
   const [language, setLanguage] = useState('any')
 
-  const [allRealtors] = useState(() => [...REALTORS, ...getRegisteredRealtors()])
+  const [allRealtors, setAllRealtors] = useState<Realtor[]>(REALTORS)
+  const [loadingRealtors, setLoadingRealtors] = useState(true)
+
+  useEffect(() => {
+    getRealtors().then((live) => {
+      if (live.length > 0) setAllRealtors(live)
+    }).finally(() => setLoadingRealtors(false))
+  }, [])
+
   const ALL_LANGS = useMemo(() => [...new Set(allRealtors.flatMap((r) => r.languages))].sort(), [allRealtors])
 
   const ranked = useMemo(() => rankRealtors(buyer, allRealtors), [buyer, allRealtors])
@@ -136,6 +146,11 @@ export default function Matches({ buyer, onView, onEdit, selectedId }: MatchesPr
         </aside>
 
         <section className="grid grid-cols-2 gap-5 content-start max-[860px]:grid-cols-1">
+          {loadingRealtors && (
+            <p className="col-span-2 text-[13px] text-[--color-muted] mb-1">
+              Loading live agents…
+            </p>
+          )}
           {filtered.length === 0 ? (
             <div className="col-span-2 text-center py-15 px-5 text-[--color-ink-soft]">
               <p>No realtors match these filters yet.</p>

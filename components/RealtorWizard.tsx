@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Realtor, HomeType, CommStyle } from '@/lib/realtors'
 import { registerRealtor } from '@/lib/realtors'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 
@@ -155,6 +156,8 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
   const router = useRouter()
   const [step, setStep] = useState(0)
   const [done, setDone] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [p, setP] = useState<Draft>(DEFAULTS)
   const set = (patch: Partial<Draft>) => setP((prev) => ({ ...prev, ...patch }))
 
@@ -424,11 +427,11 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
   const canProceed = steps[step].canProceed
 
   const goBack = () => (step === 0 ? onBack() : setStep(step - 1))
-  const goNext = () => {
-    if (!canProceed) return
+  const goNext = useCallback(async () => {
+    if (!canProceed || submitting) return
     if (isLast) {
       const realtor: Realtor = {
-        id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: '',
         name: p.name.trim(),
         photo: p.photo,
         regions: p.regions,
@@ -451,12 +454,22 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
         bio: p.bio || 'No bio provided yet.',
         recentDeal: p.recentDeal || 'No recent deal listed yet.',
       }
-      registerRealtor(realtor)
-      setDone(true)
+      setSubmitting(true)
+      setSubmitError(null)
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        await registerRealtor(realtor, user?.id)
+        setDone(true)
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : 'Something went wrong.')
+      } finally {
+        setSubmitting(false)
+      }
     } else {
       setStep(step + 1)
     }
-  }
+  }, [canProceed, submitting, isLast, p, step])
 
   if (done) {
     return (
@@ -554,21 +567,25 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
         <div>{steps[step].body}</div>
 
         <Separator className="mt-4 bg-[--color-line]" />
+        {submitError && (
+          <p className="text-sm text-red-600 mt-3">{submitError}</p>
+        )}
         <div className="flex justify-between items-center pt-5.5">
           <Button
             className="rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-black! text-white! hover:bg-zinc-800!"
             onClick={goBack}
+            disabled={submitting}
           >
             {step === 0 ? 'Back to start' : 'Back'}
           </Button>
           <Button
             className={`rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay]! text-white! hover:bg-[--color-clay-deep]! active:translate-y-px ${
-              !canProceed ? 'opacity-40 cursor-not-allowed' : ''
+              !canProceed || submitting ? 'opacity-40 cursor-not-allowed' : ''
             }`}
             onClick={goNext}
-            disabled={!canProceed}
+            disabled={!canProceed || submitting}
           >
-            {isLast ? 'Create my profile' : 'Continue'}
+            {submitting ? 'Saving…' : isLast ? 'Create my profile' : 'Continue'}
           </Button>
         </div>
       </div>

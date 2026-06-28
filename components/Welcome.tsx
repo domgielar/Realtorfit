@@ -6,6 +6,7 @@ const GRADIENT_HOVER = 'linear-gradient(to right, #f09060, #7a2e18)'
 interface WelcomeProps {
   onStart: () => void
   onRealtorStart: () => void
+  onLogin: () => void
 }
 
 function HeroButton({
@@ -48,7 +49,7 @@ function HeroButton({
   )
 }
 
-export default function Welcome({ onStart, onRealtorStart }: WelcomeProps) {
+export default function Welcome({ onStart, onRealtorStart, onLogin }: WelcomeProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start px-6 pt-16 pb-20 text-center">
       <header className="flex items-baseline gap-3 mb-10">
@@ -80,6 +81,34 @@ export default function Welcome({ onStart, onRealtorStart }: WelcomeProps) {
           subtitle="List your profile as a realtor"
           onClick={onRealtorStart}
         />
+      </div>
+
+      <div className="flex justify-center mt-4">
+        <Button
+          onClick={onLogin}
+          className="group relative rounded-2xl px-6 py-3.5 h-auto font-semibold text-white! text-[14px] shadow-[0_6px_24px_rgba(140,56,32,0.38)] border border-white/20! active:scale-[0.98] transition-transform duration-100 overflow-hidden"
+          style={{ backgroundImage: GRADIENT }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget as HTMLButtonElement
+            el.style.backgroundImage = GRADIENT_HOVER
+            el.style.boxShadow = '0 10px 32px rgba(140,56,32,0.55)'
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget as HTMLButtonElement
+            el.style.backgroundImage = GRADIENT
+            el.style.boxShadow = '0 6px 24px rgba(140,56,32,0.38)'
+          }}
+        >
+          <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-linear-to-r from-transparent via-white/15 to-transparent skew-x-[-20deg]" />
+          <span className="relative flex flex-col items-center gap-0.5">
+            <span className="font-(family-name:--font-display) text-[16px] font-semibold tracking-[-0.01em] leading-tight">
+              Log in
+            </span>
+            <span className="font-sans text-[11px] font-normal tracking-[0.06em] uppercase opacity-80">
+              Existing account
+            </span>
+          </span>
+        </Button>
       </div>
     </div>
   )
