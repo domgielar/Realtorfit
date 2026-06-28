@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import MessageThread from '@/components/MessageThread'
+import EditProfileModal from '@/components/EditProfileModal'
 
 const HOUSE_IMAGES = [
   '/sieuwert-otterloo-aren8nutd1Q-unsplash.jpg',
@@ -25,6 +27,9 @@ function mapRow(row: Record<string, unknown>): Realtor {
     name: row.name as string,
     photo: row.photo as string,
     regions: row.regions as string[],
+    serviceLat: row.service_lat != null ? Number(row.service_lat) : undefined,
+    serviceLng: row.service_lng != null ? Number(row.service_lng) : undefined,
+    serviceRadiusMi: row.service_radius_mi != null ? Number(row.service_radius_mi) : undefined,
     yearsExperience: row.years_experience as number,
     homesSold: row.homes_sold as number,
     priceBand: [row.price_band_min as number, row.price_band_max as number],
@@ -46,16 +51,48 @@ function mapRow(row: Record<string, unknown>): Realtor {
   }
 }
 
-function profileStrength(r: Realtor): number {
-  let score = 0
-  if (r.photo && r.photo !== '🧑‍💼') score += 10
-  if (r.bio && r.bio !== 'No bio provided yet.') score += 25
-  if (r.recentDeal && r.recentDeal !== 'No recent deal listed yet.') score += 25
-  if (r.regions.length > 0) score += 10
-  if (r.specialties.length > 0) score += 10
-  if (r.commStyles.length > 0) score += 10
-  if (r.licenseVerified) score += 10
-  return score
+interface StrengthFactor {
+  label: string
+  pts: number
+  done: boolean
+  hint: string
+}
+
+function profileStrength(r: Realtor): { score: number; factors: StrengthFactor[] } {
+  const factors: StrengthFactor[] = [
+    {
+      label: 'Bio',
+      pts: 30,
+      done: !!(r.bio && r.bio !== 'No bio provided yet.'),
+      hint: 'Write a bio buyers will see',
+    },
+    {
+      label: 'Recent deal',
+      pts: 25,
+      done: !!(r.recentDeal && r.recentDeal !== 'No recent deal listed yet.'),
+      hint: 'Add a deal you\'re proud of',
+    },
+    {
+      label: 'Specialties',
+      pts: 20,
+      done: r.specialties.length > 0,
+      hint: 'Select the home types you work with',
+    },
+    {
+      label: 'Communication styles',
+      pts: 15,
+      done: r.commStyles.length > 0,
+      hint: 'Choose how you prefer to communicate',
+    },
+    {
+      label: 'Personality tags',
+      pts: 10,
+      done: r.personality.length > 0,
+      hint: 'Describe your approach to buyers',
+    },
+  ]
+  const score = factors.reduce((sum, f) => sum + (f.done ? f.pts : 0), 0)
+  return { score, factors }
 }
 
 function greeting() {
@@ -65,6 +102,35 @@ function greeting() {
   return 'Good evening'
 }
 
+interface BuyerLead {
+  id: string
+  fitScore: number
+  priceMin: number
+  priceMax: number
+  region: string
+  firstTime: boolean
+  homeType: string
+  timeline: string
+  commStyle: string
+  createdAt: string
+}
+
+const TIMELINE_LABEL: Record<string, string> = {
+  asap: 'Ready now',
+  '3mo': 'In 3 months',
+  '6mo': 'In 6 months',
+  browsing: 'Just browsing',
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 export default function RealtorDashboard() {
   const router = useRouter()
   const [bgIndex, setBgIndex] = useState(() => Math.floor(Math.random() * HOUSE_IMAGES.length))
@@ -72,6 +138,10 @@ export default function RealtorDashboard() {
   const [userId, setUserId] = useState<string | null>(null)
   const [accepting, setAccepting] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [leads, setLeads] = useState<BuyerLead[]>([])
+  const [conversations, setConversations] = useState<{ buyerId: string; preview: string; time: string }[]>([])
+  const [openConvId, setOpenConvId] = useState<string | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
 
   useEffect(() => {
     const t = setInterval(() => setBgIndex((i) => (i + 1) % HOUSE_IMAGES.length), 10000)
@@ -100,12 +170,61 @@ export default function RealtorDashboard() {
         const mapped = mapRow(data as Record<string, unknown>)
         setRealtor(mapped)
         setAccepting(mapped.availableThisWeek)
+
+        const { data: leadRows } = await supabase
+          .from('buyer_lead_matches')
+          .select('id, fit_score, price_min, price_max, region, first_time, home_type, timeline, comm_style, created_at')
+          .eq('realtor_id', mapped.id)
+          .order('fit_score', { ascending: false })
+          .limit(20)
+
+        if (leadRows) {
+          setLeads(leadRows.map((r: Record<string, unknown>) => ({
+            id: r.id as string,
+            fitScore: r.fit_score as number,
+            priceMin: r.price_min as number,
+            priceMax: r.price_max as number,
+            region: r.region as string,
+            firstTime: r.first_time as boolean,
+            homeType: r.home_type as string,
+            timeline: r.timeline as string,
+            commStyle: r.comm_style as string,
+            createdAt: r.created_at as string,
+          })))
+        }
       }
 
       setLoading(false)
     }
     load()
   }, [router])
+
+  useEffect(() => {
+    if (!realtor) return
+    const supabase = createClient()
+    const fetchConversations = async () => {
+      const { data } = await supabase
+        .from('messages')
+        .select('buyer_id, content, created_at')
+        .eq('realtor_id', realtor.id)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (!data) return
+      const byBuyer: Record<string, { content: string; created_at: string }> = {}
+      for (const row of data) {
+        const bid = row.buyer_id as string
+        if (!byBuyer[bid]) byBuyer[bid] = { content: row.content as string, created_at: row.created_at as string }
+      }
+      setConversations(
+        Object.entries(byBuyer)
+          .map(([buyerId, { content, created_at }]) => ({ buyerId, preview: content, time: created_at }))
+          .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      )
+    }
+    fetchConversations()
+    const interval = setInterval(fetchConversations, 15000)
+    return () => clearInterval(interval)
+  }, [realtor?.id])
 
   const handleAcceptingChange = async (checked: boolean) => {
     setAccepting(checked)
@@ -131,7 +250,7 @@ export default function RealtorDashboard() {
         <div
           key={img}
           aria-hidden="true"
-          className={`fixed inset-0 -z-20 scale-[1.03] bg-cover bg-center bg-fixed bg-no-repeat bg-[#d6b59a] transition-opacity duration-1000 ${
+          className={`fixed inset-0 -z-20 bg-cover bg-center bg-no-repeat bg-[#d6b59a] transition-opacity duration-1000 ${
             i === bgIndex ? 'opacity-100' : 'opacity-0'
           }`}
           style={{ backgroundImage: `url(${img})` }}
@@ -333,50 +452,156 @@ export default function RealtorDashboard() {
               {/* Right: leads */}
               <Card className="bg-white border-[--color-line] shadow-card rounded-2xl gap-0 py-0">
                 <CardHeader className="px-5 pt-5 pb-0">
-                  <div className="pb-4">
+                  <div className="pb-4 flex items-center justify-between">
                     <CardTitle className="text-[16px] font-semibold text-[--color-ink]">Buyer leads</CardTitle>
+                    {leads.length > 0 && (
+                      <span className="text-[13px] font-semibold text-white bg-[--color-clay] rounded-full px-2.5 py-0.5">
+                        {leads.length}
+                      </span>
+                    )}
                   </div>
                   <Separator className="bg-[--color-line]" />
                 </CardHeader>
-                <CardContent className="px-5 py-10 text-center">
-                  <p className="text-[14px] text-[--color-ink-soft] mb-1">No leads yet.</p>
-                  <p className="text-[13px] text-[--color-muted]">
-                    Buyers who match your profile will appear here.
-                  </p>
-                </CardContent>
+                {leads.length === 0 ? (
+                  <CardContent className="px-5 py-10 text-center">
+                    <p className="text-[14px] text-[--color-ink-soft] mb-1">No leads yet.</p>
+                    <p className="text-[13px] text-[--color-muted]">
+                      Buyers who match your profile will appear here.
+                    </p>
+                  </CardContent>
+                ) : (
+                  <CardContent className="px-5 py-4 space-y-3 max-h-120 overflow-y-auto">
+                    {leads.map((lead) => (
+                      <div key={lead.id} className="p-3.5 rounded-xl border border-[--color-line] bg-[--color-paper] space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-bold tabular-nums ${
+                              lead.fitScore >= 85 ? 'bg-[#fdf3d7] text-[#8a6018]'
+                              : lead.fitScore >= 70 ? 'bg-[#dff0e4] text-[#2d6b40]'
+                              : 'bg-[#faeae4] text-[--color-clay-deep]'
+                            }`}>
+                              {lead.fitScore}%
+                            </span>
+                            <span className="text-[13px] font-semibold text-[--color-ink] capitalize truncate">
+                              {lead.homeType.replace('-', ' ')} · {lead.region}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-[--color-muted] shrink-0">{timeAgo(lead.createdAt)}</span>
+                        </div>
+                        <p className="text-[13px] text-[--color-ink-soft]">
+                          ${lead.priceMin.toLocaleString()} – ${lead.priceMax.toLocaleString()}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="px-2 py-0.5 rounded-full bg-white border border-[--color-line] text-[11px] text-[--color-ink-soft]">
+                            {TIMELINE_LABEL[lead.timeline] ?? lead.timeline}
+                          </span>
+                          {lead.firstTime && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#fef3e2] text-[11px] text-[#92600a] font-medium">
+                              First-time
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-white border border-[--color-line] text-[11px] text-[--color-ink-soft] capitalize">
+                            {lead.commStyle}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                )}
               </Card>
 
             </div>
 
+            {/* Messages */}
+            <Card className="bg-white border-[--color-line] shadow-card rounded-2xl gap-0 py-0">
+              <CardHeader className="px-5 pt-5 pb-0">
+                <div className="pb-4 flex items-center justify-between">
+                  <CardTitle className="text-[16px] font-semibold text-[--color-ink]">Messages</CardTitle>
+                  {conversations.length > 0 && (
+                    <span className="text-[13px] font-semibold text-white bg-[--color-clay] rounded-full px-2.5 py-0.5">
+                      {conversations.length}
+                    </span>
+                  )}
+                </div>
+                <Separator className="bg-[--color-line]" />
+              </CardHeader>
+              {conversations.length === 0 ? (
+                <CardContent className="px-5 py-10 text-center">
+                  <p className="text-[14px] text-[--color-ink-soft] mb-1">No messages yet.</p>
+                  <p className="text-[13px] text-[--color-muted]">
+                    When a buyer messages you, their conversation will appear here.
+                  </p>
+                </CardContent>
+              ) : (
+                <CardContent className="px-5 py-4 space-y-3">
+                  {conversations.map((conv) => (
+                    <div key={conv.buyerId}>
+                      <button
+                        className="w-full text-left p-3.5 rounded-xl border border-[--color-line] bg-[--color-paper] hover:bg-[--color-paper-deep] transition-colors"
+                        onClick={() => setOpenConvId(openConvId === conv.buyerId ? null : conv.buyerId)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[13px] font-semibold text-[--color-ink]">
+                            Buyer {conv.buyerId.slice(0, 6).toUpperCase()}
+                          </span>
+                          <span className="text-[11px] text-[--color-muted] shrink-0">{timeAgo(conv.time)}</span>
+                        </div>
+                        <p className="text-[13px] text-[--color-ink-soft] truncate mt-1">{conv.preview}</p>
+                      </button>
+                      {openConvId === conv.buyerId && (
+                        <div className="mt-2 px-1">
+                          <MessageThread
+                            buyerId={conv.buyerId}
+                            realtorId={realtor.id}
+                            senderRole="realtor"
+                            otherName={`Buyer ${conv.buyerId.slice(0, 6).toUpperCase()}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              )}
+            </Card>
+
             {/* Profile strength */}
             {(() => {
-              const strength = profileStrength(realtor)
+              const { score } = profileStrength(realtor)
+              const r = 40
+              const circ = 2 * Math.PI * r
+              const offset = circ * (1 - score / 100)
+              const color = '#000000'
               return (
                 <Card className="bg-white border-[--color-line] shadow-card rounded-2xl gap-0 py-0">
                   <CardContent className="px-6 py-5">
-                    <div className="flex items-center justify-between gap-8 flex-wrap">
-                      <div className="flex-1 min-w-56">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[14px] font-semibold text-[--color-ink]">Profile strength</span>
-                          <span className="text-[14px] font-bold text-[--color-clay]">{strength}%</span>
-                        </div>
-                        <div className="h-2 bg-[--color-line] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[--color-sage] rounded-full transition-all duration-500"
-                            style={{ width: `${strength}%` }}
+                    <div className="flex items-center justify-between gap-6">
+                      <div className="flex items-center gap-4">
+                        <svg width="96" height="96" viewBox="0 0 96 96">
+                          <circle cx="48" cy="48" r={r} fill="none" stroke="var(--color-line)" strokeWidth="8" />
+                          <circle
+                            cx="48" cy="48" r={r} fill="none"
+                            stroke={color} strokeWidth="8"
+                            strokeLinecap="round"
+                            strokeDasharray={circ}
+                            strokeDashoffset={offset}
+                            transform="rotate(-90 48 48)"
+                            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
                           />
+                          <text x="48" y="48" textAnchor="middle" dominantBaseline="central"
+                            style={{ fontSize: '20px', fontWeight: 700, fill: color, fontFamily: 'var(--font-sans)' }}>
+                            {score}%
+                          </text>
+                        </svg>
+                        <div>
+                          <p className="text-[15px] font-semibold text-[--color-ink]">Profile strength</p>
+                          <p className="text-[13px] text-[--color-muted] mt-0.5">
+                            {score === 100 ? 'Complete' : `${100 - score}% left to complete`}
+                          </p>
                         </div>
-                        <p className="text-[13px] text-[--color-muted] mt-2">
-                          {strength < 50
-                            ? 'Add a bio and recent deal to improve your match visibility.'
-                            : strength < 80
-                            ? 'Add a recent deal to boost your match visibility.'
-                            : 'Great profile — buyers will see a strong, complete listing.'}
-                        </p>
                       </div>
                       <Button
                         className="rounded-full px-6 py-2.5 h-auto text-[14px] font-semibold bg-black! text-white! hover:bg-zinc-800! shrink-0"
-                        onClick={() => router.push('/')}
+                        onClick={() => setEditOpen(true)}
                       >
                         Edit profile
                       </Button>
@@ -391,6 +616,15 @@ export default function RealtorDashboard() {
         )}
 
       </div>
+
+      {editOpen && realtor && userId && (
+        <EditProfileModal
+          realtor={realtor}
+          userId={userId}
+          onSave={(updated) => setRealtor(updated)}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
     </div>
   )
 }

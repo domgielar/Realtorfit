@@ -7,6 +7,9 @@ export interface BuyerProfile {
   priceMin: number
   priceMax: number
   region: string
+  regionLat?: number
+  regionLng?: number
+  regionRadiusMi?: number
   inState: 'in' | 'out'
   firstTime: boolean
   homeType: HomeType
@@ -56,20 +59,44 @@ const COMM_LABEL: Record<CommStyle, string> = {
 const usd = (n: number): string =>
   '$' + Math.round(n).toLocaleString('en-US', { maximumFractionDigits: 0 })
 
+function haversineDistanceMi(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 // A factor only counts toward the score when it's relevant to this buyer, so
 // irrelevant factors never quietly penalize an agent.
 export function scoreRealtor(buyer: BuyerProfile, realtor: Realtor): ScoreResult {
   const factors: Factor[] = []
 
   // --- Location (always matters most) ---
-  const servesArea = realtor.regions.some(
-    (r) => r.toLowerCase() === String(buyer.region || '').toLowerCase(),
-  )
+  let servesArea: boolean
+  if (
+    buyer.regionLat != null && buyer.regionLng != null &&
+    realtor.serviceLat != null && realtor.serviceLng != null
+  ) {
+    const dist = haversineDistanceMi(
+      buyer.regionLat, buyer.regionLng,
+      realtor.serviceLat, realtor.serviceLng,
+    )
+    const totalRadius = (buyer.regionRadiusMi ?? 25) + (realtor.serviceRadiusMi ?? 25)
+    servesArea = dist <= totalRadius
+  } else {
+    servesArea = realtor.regions.some(
+      (r) => r.toLowerCase() === String(buyer.region || '').toLowerCase(),
+    )
+  }
+  const areaLabel = buyer.region || 'your area'
   factors.push({
     weight: 20,
     value: servesArea ? 1 : 0,
-    plus: servesArea ? `Serves ${buyer.region}` : null,
-    minus: servesArea ? null : `Doesn't list ${buyer.region || 'your area'} as a service area`,
+    plus: servesArea ? `Serves ${areaLabel}` : null,
+    minus: servesArea ? null : `Doesn't cover ${areaLabel}`,
   })
 
   // --- Price-range overlap ---

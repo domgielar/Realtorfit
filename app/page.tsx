@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import Welcome from '@/components/Welcome'
 import Login from '@/components/Login'
 import ProfileWizard from '@/components/ProfileWizard'
@@ -10,8 +11,10 @@ import RealtorWizard from '@/components/RealtorWizard'
 import Matches from '@/components/Matches'
 import RealtorDetail from '@/components/RealtorDetail'
 import type { BuyerProfile, MatchResult } from '@/lib/matching'
+import { getBuyerProfile } from '@/lib/supabase/queries'
 
 type View = 'welcome' | 'wizard' | 'matches' | 'realtor-wizard' | 'login'
+type LoginIntent = 'none' | 'buyer-wizard' | 'realtor-wizard'
 
 const HOUSE_IMAGES = [
   '/sieuwert-otterloo-aren8nutd1Q-unsplash.jpg',
@@ -24,9 +27,30 @@ const HOUSE_IMAGES = [
 export default function Home() {
   const router = useRouter()
   const [view, setView] = useState<View>('welcome')
+  const [loginIntent, setLoginIntent] = useState<LoginIntent>('none')
   const [buyer, setBuyer] = useState<BuyerProfile | null>(null)
   const [selected, setSelected] = useState<MatchResult | null>(null)
   const [bgIndex, setBgIndex] = useState(0)
+  const [userId, setUserId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    // On initial load — restore saved buyer profile if the user is already signed in
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      setUserId(user?.id ?? null)
+      if (user && !buyer) {
+        const saved = await getBuyerProfile(user.id)
+        if (saved) setBuyer(saved)
+      }
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      setUserId(session?.user?.id ?? null)
+    })
+    return () => subscription.unsubscribe()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const startVT = (cb: () => void) => {
     if ('startViewTransition' in document) {
@@ -74,17 +98,67 @@ export default function Home() {
       <main className="relative min-h-screen text-[--color-ink]">
         {view === 'welcome' && (
           <Welcome
-            onStart={() => setView('wizard')}
-            onRealtorStart={() => setView('realtor-wizard')}
+            onStart={async () => {
+              const supabase = createClient()
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                // Returning buyer — go straight to matches if they have a saved profile
+                const saved = buyer ?? await getBuyerProfile(user.id)
+                if (saved) {
+                  setBuyer(saved)
+                  setView('matches')
+                } else {
+                  setView('wizard')
+                }
+              } else {
+                setLoginIntent('buyer-wizard')
+                setView('login')
+              }
+            }}
+            onRealtorStart={async () => {
+              const supabase = createClient()
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                setView('realtor-wizard')
+              } else {
+                setLoginIntent('realtor-wizard')
+                setView('login')
+              }
+            }}
             onLogin={() => setView('login')}
           />
         )}
 
         {view === 'login' && (
           <Login
-            onBuyerLogin={() => setView('wizard')}
-            onRealtorLogin={() => router.push('/dashboard')}
-            onBack={() => setView('welcome')}
+            initialRole={loginIntent === 'realtor-wizard' ? 'realtor' : 'buyer'}
+            initialMode={loginIntent !== 'none' ? 'signup' : 'signin'}
+            onBuyerLogin={async () => {
+              setLoginIntent('none')
+              const supabase = createClient()
+              const { data: { user } } = await supabase.auth.getUser()
+              if (user) {
+                const saved = await getBuyerProfile(user.id)
+                if (saved) {
+                  setBuyer(saved)
+                  setView('matches')
+                } else {
+                  setView('wizard')
+                }
+              } else {
+                setView('wizard')
+              }
+            }}
+            onRealtorLogin={() => {
+              if (loginIntent === 'realtor-wizard') {
+                setLoginIntent('none')
+                setView('realtor-wizard')
+              } else {
+                setLoginIntent('none')
+                router.push('/dashboard')
+              }
+            }}
+            onBack={() => { setLoginIntent('none'); setView('welcome') }}
           />
         )}
 
@@ -100,11 +174,6 @@ export default function Home() {
             onComplete={(profile) => {
               setBuyer(profile)
               setView('matches')
-              fetch('/api/buyer-leads', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(profile),
-              }).catch(() => {/* non-critical — don't surface to the buyer */})
             }}
             onBack={() => setView('welcome')}
           />
@@ -114,12 +183,18 @@ export default function Home() {
           <Matches
             buyer={buyer}
             onView={handleView}
-            onEdit={() => setView('wizard')}
+            onEdit={() => startVT(() => setView('wizard'))}
+            onSignOut={() => {
+              setBuyer(null)
+              setUserId(null)
+              startVT(() => setView('welcome'))
+            }}
             selectedId={selected?.realtor.id ?? null}
+            userId={userId ?? undefined}
           />
         )}
 
-        <RealtorDetail match={selected} onClose={handleClose} />
+        <RealtorDetail match={selected} onClose={handleClose} buyerUserId={userId} />
       </main>
     </div>
   )

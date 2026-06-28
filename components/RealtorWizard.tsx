@@ -7,14 +7,7 @@ import { registerRealtor } from '@/lib/realtors'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-
-const REGIONS = [
-  'Boston', 'Cambridge', 'Quincy', 'Newton', 'Brookline',
-  'Worcester', 'Shrewsbury', 'Auburn', 'Millbury', 'Holden',
-  'Framingham', 'Marlborough', 'Westborough', 'Northborough', 'Boylston',
-  'Leominster', 'Fitchburg', 'Gardner',
-  'Grafton', 'Sutton', 'Paxton', 'Rutland',
-]
+import LocationPicker, { type LocationSelection } from '@/components/LocationPicker'
 
 const AVATARS = [
   '👨‍💼', '👩‍💼', '🧑‍💼', '👨🏽‍💼', '👩🏽‍💼', '👨🏼‍💼',
@@ -39,6 +32,7 @@ interface Draft {
   yearsExperience: number
   homesSold: number
   regions: string[]
+  serviceLocation: LocationSelection | null
   specialties: HomeType[]
   priceMin: number
   priceMax: number
@@ -61,6 +55,7 @@ const DEFAULTS: Draft = {
   yearsExperience: 5,
   homesSold: 50,
   regions: [],
+  serviceLocation: null,
   specialties: [],
   priceMin: 250000,
   priceMax: 700000,
@@ -244,14 +239,23 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
     },
     {
       title: 'Where do you work?',
-      canProceed: p.regions.length > 0,
+      canProceed: p.serviceLocation !== null,
       body: (
-        <MultiChoice
-          label="Select all cities and towns you serve"
-          value={p.regions}
-          onChange={(v) => set({ regions: v })}
-          options={REGIONS.map((r) => ({ value: r, label: r }))}
-        />
+        <div className="mb-6">
+          <label className="block text-[15px] font-semibold mb-2.5 text-[--color-ink]">
+            Your service area
+          </label>
+          <p className="text-[13px] text-[--color-muted-brand] -mt-1 mb-3 leading-[1.45]">
+            Pin the center of where you work and set a radius. Buyers searching in this area will see your profile.
+          </p>
+          <LocationPicker
+            value={p.serviceLocation}
+            onChange={(sel) => set({ serviceLocation: sel, regions: [sel.label] })}
+            placeholder="Search for your city or area…"
+            minRadius={5}
+            maxRadius={100}
+          />
+        </div>
       ),
     },
     {
@@ -435,6 +439,9 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
         name: p.name.trim(),
         photo: p.photo,
         regions: p.regions,
+        serviceLat: p.serviceLocation?.lat,
+        serviceLng: p.serviceLocation?.lng,
+        serviceRadiusMi: p.serviceLocation?.radiusMi,
         yearsExperience: p.yearsExperience,
         homesSold: p.homesSold,
         priceBand: [p.priceMin, p.priceMax],
@@ -459,7 +466,12 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
       try {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        await registerRealtor(realtor, user?.id)
+        if (!user) {
+          setSubmitError('You must be signed in to create a realtor profile. Please go back and log in.')
+          setSubmitting(false)
+          return
+        }
+        await registerRealtor(realtor, user.id)
         setDone(true)
       } catch (err) {
         setSubmitError(err instanceof Error ? err.message : 'Something went wrong.')
@@ -502,9 +514,9 @@ export default function RealtorWizard({ onComplete, onBack }: Props) {
               You&apos;re live, {p.name.split(' ')[0]}!
             </h2>
             <p className="text-[16px] text-[--color-ink-soft] mb-1 max-w-md mx-auto">
-              Your profile is active. Buyers searching in{' '}
-              <strong>{p.regions.slice(0, 2).join(' and ')}{p.regions.length > 2 ? ' and more' : ''}</strong>{' '}
-              will now see you in their matches.
+              Your profile is active. Buyers searching near{' '}
+              <strong>{p.serviceLocation?.label ?? p.regions[0] ?? 'your area'}</strong>{' '}
+              within <strong>{p.serviceLocation?.radiusMi ?? 25} miles</strong> will now see you in their matches.
             </p>
             <p className="text-[13px] text-[--color-muted-brand] mb-8">
               License verification is pending — a verified badge will appear once confirmed.

@@ -10,6 +10,9 @@ export interface Realtor {
   name: string
   photo: string
   regions: string[]
+  serviceLat?: number
+  serviceLng?: number
+  serviceRadiusMi?: number
   yearsExperience: number
   homesSold: number
   priceBand: [number, number]

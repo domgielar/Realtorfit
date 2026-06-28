@@ -78,6 +78,7 @@ The `FitScore` component maps score to a visual tier:
 | Database / Auth | **Supabase** | Postgres + auth + file storage in one |
 | Data fetching | **TanStack Query** | Loading/error states, caching, background sync |
 | Forms | **React Hook Form + Zod** | Type-safe forms, schema-driven validation |
+| Maps | **`@vis.gl/react-google-maps`** | Google Maps JS API React wrapper — map, marker, circle, Places Autocomplete |
 | Deploy | **Vercel** | Zero-config Next.js hosting |
 
 Run dev server:
@@ -96,38 +97,81 @@ realtor-fit/
 ├── app/
 │   ├── (realtor)/
 │   │   └── dashboard/
-│   │       └── page.tsx        Realtor dashboard — auth-guarded, loads profile by user_id, real data only
+│   │       └── page.tsx        Realtor dashboard — auth-guarded, loads profile by user_id; shows stats,
+│   │                           profile detail, buyer leads panel (from buyer_lead_matches), messages panel
+│   │                           (conversations grouped by buyer, polls every 15s, inline MessageThread reply),
+│   │                           SVG circular profile strength meter (real weights: bio 30, recentDeal 25,
+│   │                           specialties 20, commStyles 15, personality 10 = 100 max), availability
+│   │                           toggle (writes to DB live), and EditProfileModal (opened via Edit profile btn);
+│   │                           background: fixed divs, no scale/bg-fixed to prevent scroll blur
 │   ├── api/
+│   │   ├── buyer-leads/
+│   │   │   └── route.ts        POST — inserts BuyerProfile into buyer_leads + fan-out match rows into
+│   │   │                       buyer_lead_matches for each matched realtor (service-role key)
 │   │   └── realtors/
 │   │       ├── route.ts        GET list (id/name/created_at) · POST insert — service-role key, writes user_id
 │   │       └── seed/
 │   │           └── route.ts    GET — upserts the 8 REALTORS mock records (idempotent, run once)
 │   ├── globals.css             Tailwind v4 base + shadcn tokens + brand CSS variables
-│   ├── layout.tsx              Root layout — Inter + Fraunces fonts, metadata
-│   └── page.tsx                SPA home — view state: welcome / login / wizard / matches / realtor-wizard
+│   ├── layout.tsx              Root layout — Inter + Fraunces fonts, metadata; wraps children in Providers
+│   └── page.tsx                SPA home — view states: welcome / login / wizard / matches / realtor-wizard;
+│                               loginIntent tracks post-auth destination; View Transitions API for nav;
+│                               tracks userId via auth listener and passes to RealtorDetail for messaging
 ├── components/
+│   ├── EditProfileModal.tsx    Full-screen overlay modal for realtors to edit all profile fields;
+│   │                           body scroll lock on open; flex-col layout with shrink-0 header/footer
+│   │                           and overflow-y-auto scrollable middle; saves via owner RLS
+│   │                           (supabase.from('realtors').update(...).eq('user_id', userId));
+│   │                           includes LocationPicker for service area; pre-populates all fields
+│   │                           from current realtor state; calls onSave(updated) on success
 │   ├── FitScore.tsx            Circular score meter (signature UI element)
-│   ├── Login.tsx               Auth screen — email+password, role toggle (buyer/realtor), sign-in + create-account modes
-│   ├── Matches.tsx             Ranked results grid + filter sidebar — fetches live from Supabase on mount, falls back to REALTORS if DB empty
-│   ├── ProfileWizard.tsx       Multi-step buyer questionnaire → produces BuyerProfile
+│   ├── LocationPicker.tsx      Google Map + Geocoder + radius circle + slider;
+│   │                           exports LocationSelection { label, lat, lng, radiusMi };
+│   │                           click-to-pin with reverse geocoding to nearest town name;
+│   │                           used in buyer wizard, realtor wizard, and EditProfileModal
+│   ├── Login.tsx               Auth screen — email+password, role toggle (buyer/realtor), sign-in +
+│   │                           create-account modes; accepts initialRole/initialMode for intent routing
+│   ├── Matches.tsx             Ranked results grid + filter sidebar — fetches live from Supabase on mount,
+│   │                           falls back to REALTORS if DB empty; posts top-10 match scores to
+│   │                           /api/buyer-leads on first render (once, via leadPosted ref);
+│   │                           header text in bg-white/95 backdrop-blur card for readability over photos
+│   ├── MessageThread.tsx       Reusable buyer↔realtor chat thread — polls Supabase every 5s;
+│   │                           bubble UI (clay = sender, white = receiver); Enter to send;
+│   │                           takes { buyerId, realtorId, senderRole, otherName };
+│   │                           used in RealtorDetail (buyer side) and dashboard (realtor side)
+│   ├── ProfileWizard.tsx       Multi-step buyer questionnaire → produces BuyerProfile; step 1 uses
+│   │                           LocationPicker for region (Continue disabled until location pinned)
+│   ├── Providers.tsx           Client wrapper around APIProvider from @vis.gl/react-google-maps;
+│                               must wrap the whole app so LocationPicker can use useMap/useMapsLibrary
 │   ├── RealtorCard.tsx         Summary card with fit score, shown in Matches list
-│   ├── RealtorDetail.tsx       Full realtor profile panel (dialog)
-│   ├── RealtorWizard.tsx       Multi-step realtor sign-up → captures auth.uid → POSTs to /api/realtors
+│   ├── RealtorDetail.tsx       Full realtor profile sliding panel — accepts buyerUserId? prop;
+│   │                           "Message" button toggles inline MessageThread below the profile;
+│   │                           showMessages state resets when a different realtor is opened
+│   ├── RealtorWizard.tsx       Multi-step realtor sign-up; step 2 uses LocationPicker for service area
+│   │                           (5–100 mi radius); saves serviceLat/Lng/RadiusMi to DB
 │   ├── Welcome.tsx             Landing / hero — buyer, realtor, and login entry points
 │   └── ui/                     shadcn components — never hand-edit these
 ├── lib/
-│   ├── matching.ts             Fit-score engine — pure functions, no component logic
-│   ├── realtors.ts             Realtor type + 8 mock records + registerRealtor(realtor, userId?)
+│   ├── matching.ts             Fit-score engine — BuyerProfile has regionLat/Lng/RadiusMi fields;
+│   │                           location factor uses Haversine distance when both sides have coords,
+│   │                           falls back to string match for legacy records
+│   ├── realtors.ts             Realtor type (has serviceLat/Lng/RadiusMi optional fields) + 8 mock
+│   │                           records + registerRealtor(realtor, userId?)
 │   ├── utils.ts                cn() helper from shadcn
 │   └── supabase/
 │       ├── client.ts           Browser Supabase client (createBrowserClient)
 │       ├── queries.ts          getRealtors() — fetches public.realtors, maps snake_case → Realtor camelCase
+│       │                       including service_lat/lng/radius_mi
 │       └── server.ts           Server Supabase client (createServerClient + cookies)
 ├── supabase/
 │   └── migrations/
-│       ├── 001_create_realtors_and_buyer_leads.sql   ✅ Run
-│       └── 002_add_user_id_to_realtors.sql           ⚠️ Needs to be run in SQL Editor
-├── .env.local                  Supabase credentials (filled in, correct URL)
+│       ├── 001_create_realtors_and_buyer_leads.sql      ✅ Run
+│       ├── 002_add_user_id_to_realtors.sql              ✅ Run
+│       ├── 003_add_realtor_id_to_buyer_leads.sql        ⚠️  Superseded — do NOT run
+│       ├── 003_create_buyer_lead_matches.sql            ✅ Run
+│       ├── 004_add_location_fields.sql                  ⬜ Needs to be run
+│       └── 005_create_messages.sql                      ⬜ Needs to be run
+├── .env.local                  Supabase credentials + NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (fill in)
 ├── components.json             shadcn config
 ├── next.config.ts
 └── tsconfig.json
@@ -155,6 +199,7 @@ price_band_min, price_band_max, commission_rate, specialties[],
 first_time_friendly, out_of_state_experienced, investment_experienced,
 languages[], comm_styles[], available_this_week, avg_response_hours,
 rating, review_count, license_verified, personality[], bio, recent_deal,
+service_lat, service_lng, service_radius_mi,   ← map-based service area (migration 004)
 user_id (uuid → auth.users), created_at
 ```
 RLS: public read · service-role insert · owner can update own row (`auth.uid() = user_id`).
@@ -162,10 +207,31 @@ RLS: public read · service-role insert · owner can update own row (`auth.uid()
 
 **`buyer_leads`** — mirrors `BuyerProfile` interface in `lib/matching.ts`:
 ```
-id, price_min, price_max, region, in_state, first_time, home_type,
+id, price_min, price_max, region,
+region_lat, region_lng, region_radius_mi,  ← map-based buyer target area (migration 004)
+in_state, first_time, home_type,
 timeline, pre_approved, experience_pref, comm_style, created_at
 ```
 RLS: anyone can insert (anonymous), no reads (privacy).
+
+**`buyer_lead_matches`** — junction table: which realtors each buyer was shown and at what score.
+Buyer fields denormalized so the dashboard doesn't need a cross-join into the private `buyer_leads` table:
+```
+id, buyer_lead_id, realtor_id (→ realtors.id), fit_score,
+home_type, region, price_min, price_max, comm_style, first_time, timeline,
+created_at · unique(buyer_lead_id, realtor_id)
+```
+RLS: authenticated realtor can SELECT rows where `realtor_id` is theirs · service-role INSERT only.
+
+**`messages`** — direct messages between an authenticated buyer and a realtor (migration 005):
+```
+id, buyer_id (uuid → auth.users), realtor_id (text → realtors.id),
+sender_role ('buyer' | 'realtor'), content, created_at
+index on (realtor_id, buyer_id, created_at)
+```
+RLS: buyer reads/inserts own rows (`buyer_id = auth.uid()`) · realtor reads/inserts rows where
+`realtor_id in (select id from realtors where user_id = auth.uid())`.
+Both buyer and realtor must be authenticated — buyers are required to sign in before the wizard.
 
 ---
 
@@ -207,74 +273,80 @@ RLS: anyone can insert (anonymous), no reads (privacy).
 | 5d | Run migration 001 in Supabase SQL Editor | ✅ Done |
 | 6a | Replace `localStorage` with Supabase insert in `RealtorWizard` | ✅ Done |
 | 6b | Replace mock `REALTORS` array with live Supabase query | ✅ Done |
-| 6c | Save `BuyerProfile` to `buyer_leads` on wizard completion | ⬜ |
+| 6c | Save `BuyerProfile` to `buyer_leads` on wizard completion | ✅ Done |
 | 7a | Auth UI — `Login.tsx` with role toggle, sign-in + create-account | ✅ Done |
-| 7b | Run migration 002 (`user_id` on realtors) in Supabase SQL Editor | ⚠️ Needs you |
+| 7b | Run migration 002 (`user_id` on realtors) in Supabase SQL Editor | ✅ Done |
 | 7c | Dashboard — auth-guarded, loads real profile by `user_id`, no mock data | ✅ Done |
-| 7d | Gate `RealtorWizard` behind auth (require login before creating profile) | ⬜ |
-| 7e | Link buyer leads to the matched realtor's profile | ⬜ |
-| 8 | Deploy to Vercel | ⬜ |
+| 7d | Gate `RealtorWizard` behind auth (require login before creating profile) | ✅ Done |
+| 7e | `buyer_lead_matches` table + fan-out API route; dashboard buyer leads panel | ✅ Done |
+| 7f | Run migration 003 (`buyer_lead_matches`) in Supabase SQL Editor | ✅ Done |
+| 7g | Dashboard: profile strength meter + live availability toggle | ✅ Done |
+| 7h | Intent-aware login routing + View Transitions API navigation | ✅ Done |
+| 8a | Google Maps location picker — `LocationPicker.tsx` + `Providers.tsx`; both wizards updated | ✅ Done |
+| 8b | Haversine distance scoring in `lib/matching.ts`; fallback to string match for legacy records | ✅ Done |
+| 8c | Add `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to `.env.local` | ⬜ Needs API key |
+| 8d | Run migration 004 (`service_lat/lng/radius_mi` + `region_lat/lng/radius_mi`) in Supabase SQL Editor | ⬜ |
+| 9a | Buyer↔realtor messaging — `MessageThread.tsx`, `messages` table + RLS, inline thread in `RealtorDetail`, messages panel on dashboard | ✅ Done |
+| 9b | Run migration 005 (`messages` table) in Supabase SQL Editor | ⬜ |
+| 9c | Matches header readability — header text wrapped in frosted-glass white card over house photo background | ✅ Done |
+| 10a | `EditProfileModal.tsx` — all profile fields editable, LocationPicker for service area, saves via owner RLS | ✅ Done |
+| 10b | Profile strength — SVG circle meter, real weights (bio/recentDeal/specialties/commStyles/personality = 100) | ✅ Done |
+| 10c | Dashboard background scroll blur fix — removed `scale-[1.03]` + `bg-fixed` from background divs | ✅ Done |
+| 11 | Deploy to Vercel | ⬜ |
 
 ---
 
 ## Exact next steps
 
-### Step 7b — Run migration 002 (you do this once)
+### Step 8c — Add Google Maps API key
 
-1. Go to Supabase dashboard → project `lfmbczgohxgslaeiyhfy` → SQL Editor
-2. Open `supabase/migrations/002_add_user_id_to_realtors.sql`, copy all, paste and **Run**
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
+2. Create a new API key
+3. Enable **Maps JavaScript API** and **Places API** for that key
+4. Restrict the key to your domain (or `localhost:3000` for dev)
+5. Paste it into `.env.local`: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIza...`
 
-This adds `user_id uuid references auth.users` to the `realtors` table and an RLS policy so realtors can update their own row (used by the "Accepting clients" toggle on the dashboard).
+The `LocationPicker` component will load once the key is in place — the map and autocomplete are already wired.
 
----
+### Step 8d — Run migration 004
 
-### Step 6c — "Save buyer profile to buyer_leads"
+In the Supabase SQL Editor, run the contents of `supabase/migrations/004_add_location_fields.sql`.
+This adds `service_lat`, `service_lng`, `service_radius_mi` to `realtors` and `region_lat`, `region_lng`, `region_radius_mi` to `buyer_leads`. Both are nullable so existing records continue to work with string-based matching fallback.
 
-**Context:** buyer data lives only in React state and is discarded after the session — no leads are captured.
+### Step 9b — Run migration 005
 
-**What changes:**
-- New API route `app/api/buyer-leads/route.ts` — POST using the anon key (RLS allows anonymous insert)
-- `app/page.tsx` — fire-and-forget POST when buyer transitions from wizard to matches; no need to block on the response
-- `BuyerProfile` in `lib/matching.ts` maps directly to `buyer_leads` columns
+In the Supabase SQL Editor, run the contents of `supabase/migrations/005_create_messages.sql`.
+This creates the `messages` table with RLS policies allowing buyers to read/send their own messages and realtors to read/send messages for their profile. Must be run before messaging works in production.
 
-**Prompt:** *"Save buyer profiles to Supabase when they complete the wizard"*
+### Step 11 — Deploy to Vercel
 
----
-
-### Step 7d — Gate RealtorWizard behind auth
-
-**Context:** anyone can currently hit "Sell to every client" and create a realtor profile without an account, leaving `user_id = null` and no way to claim the dashboard.
-
-**What changes:**
-- `Welcome.tsx` — "Sell to every client" button checks for a session first; if none, redirects to `Login.tsx` with mode pre-set to `signup` and role pre-set to `realtor`
-- After successful sign-up, continue into the `RealtorWizard` flow
-- `RealtorWizard.tsx` — if `user_id` is null at submit time, block with an error (belt-and-suspenders)
-
-**Prompt:** *"Gate the realtor wizard behind Supabase Auth so profiles always have a user_id"*
-
----
-
-### Step 7e — Link buyer leads to matched realtors
-
-**Context:** `buyer_leads` has no `realtor_id` column — the dashboard shows an empty leads panel.
-
-**What changes:**
-- Add `realtor_id text references public.realtors(id)` to `buyer_leads` (new migration `003_...`)
-- When scoring matches in `Matches.tsx`, fire-and-forget a POST that records the top-N matched realtor IDs on each `buyer_lead` row
-- Dashboard queries `buyer_leads` where `realtor_id = realtor.id` and renders real buyer cards
-
-**Prompt:** *"Link buyer leads to matched realtors so the dashboard shows real leads"*
-
----
-
-### Step 8 — Deploy to Vercel
+**Context:** all core features are complete. The app is ready to go public.
 
 **What's needed before deploying:**
-- All `.env.local` variables added to Vercel project environment (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)
+- All `.env.local` variables added to Vercel project environment:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+  - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` ← restrict to the Vercel domain in Google Cloud
 - Confirm `next.config.ts` has no local-only assumptions
 - Run `npm run build` locally one final time — must be zero errors
 
 **Prompt:** *"Deploy RealtorFit to Vercel"*
+
+---
+
+## Future feature ideas (post-launch)
+
+| Feature | Notes |
+|---------|-------|
+| Realtor photo upload | Replace the emoji avatar with a real headshot (Supabase Storage is already available) |
+| Real-time messaging | Replace the 5s polling in `MessageThread` with Supabase Realtime subscriptions for instant delivery |
+| Message notifications | Badge count on dashboard Messages card for unread messages; eventually email notification |
+| Buyer account / saved searches | Let buyers create an account and save their profile so they can return to their matches later |
+| Email notifications | When a new buyer lead matches a realtor above a threshold score, email the realtor |
+| Review & rating system | Let buyers leave reviews after working with a realtor; feed into `rating` + `review_count` |
+| Admin dashboard | View platform metrics: total buyers, total realtors, average match scores, leads per realtor |
+| Remove seeded mock realtors | Once real realtors sign up, delete the 8 seeded demo records from Supabase `realtors` table |
 
 ---
 

@@ -1,7 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import type { MatchResult } from '@/lib/matching'
 import FitScore from './FitScore'
+import MessageThread from './MessageThread'
 import {
   Dialog,
   DialogPortal,
@@ -16,11 +18,18 @@ import { Badge } from '@/components/ui/badge'
 interface RealtorDetailProps {
   match: MatchResult | null
   onClose: () => void
+  buyerUserId?: string | null
 }
 
 const usd = (n: number) => '$' + Number(n).toLocaleString('en-US')
 
-export default function RealtorDetail({ match, onClose }: RealtorDetailProps) {
+export default function RealtorDetail({ match, onClose, buyerUserId }: RealtorDetailProps) {
+  const [showMessages, setShowMessages] = useState(false)
+
+  useEffect(() => {
+    setShowMessages(false)
+  }, [match?.realtor.id])
+
   return (
     <Dialog open={!!match} onOpenChange={(open) => !open && onClose()}>
       <DialogPortal>
@@ -148,16 +157,37 @@ export default function RealtorDetail({ match, onClose }: RealtorDetailProps) {
               </div>
 
               <div className="flex flex-col gap-2.5">
-                <Button
-                  className="w-full rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay] text-white hover:bg-[--color-clay-deep] active:translate-y-px"
-                  onClick={() => alert('Messaging is on the roadmap — see CLAUDE.md.')}
-                >
-                  Message {match.realtor.name.split(' ')[0]}
-                </Button>
+                {buyerUserId ? (
+                  <>
+                    <Button
+                      className="w-full rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay] text-white hover:bg-[--color-clay-deep] active:translate-y-px"
+                      onClick={() => setShowMessages((v) => !v)}
+                    >
+                      {showMessages ? 'Hide messages' : `Message ${match.realtor.name.split(' ')[0]}`}
+                    </Button>
+                    {showMessages && (
+                      <div className="bg-white rounded-2xl border border-[--color-line] p-4">
+                        <MessageThread
+                          buyerId={buyerUserId}
+                          realtorId={match.realtor.id}
+                          senderRole="buyer"
+                          otherName={match.realtor.name.split(' ')[0]}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Button
+                    className="w-full rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay] text-white opacity-60 cursor-default"
+                    disabled
+                  >
+                    Sign in to message realtors
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="w-full rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-transparent border-[1.5px] border-[--color-line] text-[--color-ink] hover:border-[--color-clay] hover:text-[--color-clay-deep] hover:bg-transparent"
-                  onClick={() => alert('Scheduling is on the roadmap — see CLAUDE.md.')}
+                  onClick={() => alert('Calendar booking is coming soon.')}
                 >
                   Book an intro call
                 </Button>

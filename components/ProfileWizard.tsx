@@ -5,11 +5,12 @@ import type { BuyerProfile } from '@/lib/matching'
 import type { HomeType, CommStyle } from '@/lib/realtors'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import LocationPicker, { type LocationSelection } from '@/components/LocationPicker'
 
 const DEFAULTS: BuyerProfile = {
   priceMin: 250000,
   priceMax: 450000,
-  region: 'Worcester',
+  region: '',
   inState: 'in',
   firstTime: true,
   homeType: 'starter',
@@ -18,11 +19,6 @@ const DEFAULTS: BuyerProfile = {
   experiencePref: 'noPref',
   commStyle: 'text',
 }
-
-const REGIONS = [
-  'Worcester', 'Millbury', 'Shrewsbury', 'Auburn', 'Framingham',
-  'Boston', 'Quincy', 'Cambridge', 'Leominster', 'Holden',
-]
 
 interface ChoiceOption {
   value: string
@@ -76,6 +72,7 @@ interface ProfileWizardProps {
 export default function ProfileWizard({ onComplete, onBack }: ProfileWizardProps) {
   const [step, setStep] = useState(0)
   const [p, setP] = useState<BuyerProfile>(DEFAULTS)
+  const [locationValue, setLocationValue] = useState<LocationSelection | null>(null)
   const set = (patch: Partial<BuyerProfile>) => setP((prev) => ({ ...prev, ...patch }))
 
   const steps = [
@@ -131,19 +128,23 @@ export default function ProfileWizard({ onComplete, onBack }: ProfileWizardProps
 
           <div className="mb-6">
             <label className="block text-[15px] font-semibold mb-2.5 text-[--color-ink]">
-              City, town, or region
+              Where are you looking to buy?
             </label>
-            <select
-              className="w-full px-3.5 py-3 text-[15px] border-[1.5px] border-[--color-line] rounded-[10px] bg-[--color-paper] text-[--color-ink]"
-              value={p.region}
-              onChange={(e) => set({ region: e.target.value })}
-            >
-              {REGIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+            <LocationPicker
+              value={locationValue}
+              onChange={(sel) => {
+                setLocationValue(sel)
+                set({
+                  region: sel.label,
+                  regionLat: sel.lat,
+                  regionLng: sel.lng,
+                  regionRadiusMi: sel.radiusMi,
+                })
+              }}
+              placeholder="Search for a city, town, or neighborhood…"
+              minRadius={5}
+              maxRadius={50}
+            />
           </div>
 
           <Choice
@@ -244,12 +245,16 @@ export default function ProfileWizard({ onComplete, onBack }: ProfileWizardProps
   ]
 
   const isLast = step === steps.length - 1
+  const canProceed = step === 0 ? locationValue !== null : true
   const goBack = () => (step === 0 ? onBack() : setStep(step - 1))
-  const goNext = () => (isLast ? onComplete(p) : setStep(step + 1))
+  const goNext = () => {
+    if (!canProceed) return
+    isLast ? onComplete(p) : setStep(step + 1)
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-10 bg-[--color-paper] max-[520px]:p-5">
-      <div className="bg-white rounded-2xl w-full max-w-[620px] px-10 pt-9 pb-8 max-[520px]:px-5.5 shadow-card">
+    <div className="min-h-screen py-10 px-10 bg-[--color-paper] flex items-start justify-center max-[520px]:px-5 max-[520px]:py-5">
+      <div className="bg-white rounded-2xl w-full max-w-155 px-10 pt-9 pb-8 max-[520px]:px-5.5 shadow-card">
         <div className="flex gap-2 mb-4.5">
           {steps.map((_, i) => (
             <span
@@ -267,7 +272,7 @@ export default function ProfileWizard({ onComplete, onBack }: ProfileWizardProps
           {steps[step].title}
         </h2>
 
-        <div className="min-h-65">{steps[step].body}</div>
+        <div>{steps[step].body}</div>
 
         <Separator className="mt-7 bg-[--color-line]" />
         <div className="flex justify-between items-center pt-5.5">
@@ -278,8 +283,11 @@ export default function ProfileWizard({ onComplete, onBack }: ProfileWizardProps
             {step === 0 ? 'Back to start' : 'Back'}
           </Button>
           <Button
-            className="rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay]! text-white! hover:bg-[--color-clay-deep]! active:translate-y-px"
+            className={`rounded-full px-5.5 py-2.75 h-auto text-[15px] font-semibold bg-[--color-clay]! text-white! hover:bg-[--color-clay-deep]! active:translate-y-px ${
+              !canProceed ? 'opacity-40 cursor-not-allowed' : ''
+            }`}
             onClick={goNext}
+            disabled={!canProceed}
           >
             {isLast ? 'See my matches' : 'Continue'}
           </Button>
